@@ -1,0 +1,87 @@
+---
+title: "ESM 244 Lab 2 - Time Series"
+author: "Chelsea Sanford"
+format:
+  html:
+    code-fold: show
+    toc: true
+    number-sections: true
+excecute: 
+  echo: true
+  message: false
+  warning: false
+editor: visual
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(tsibble)
+library(feasts)
+library(fable)
+```
+
+# Part 1 Time Series with Toolik Lake data
+
+## Always loook at your data
+
+### Read in the data
+
+```{r}
+toolik_df <-  read_csv(here('data/toolik_daily.csv'))
+
+###convert data frame to time series
+
+
+toolik_ts <- toolik_df %>% 
+  mutate(date= lubridate::mdy(date)) %>% 
+#convert from month,day, year to "date"  
+  as_tsibble(key = NULL, ### if we have dates from multiple sites we wan tot key by site
+             index = date) ### this is our time series variable
+  
+ggplot(toolik_ts, aes(x=date, y = daily_air_temp)) +
+  geom_line() + 
+  labs(x = 'date' , y = 'Mean daily air temp (Celsius)\n at Toolik Station') 
+#the back slash will 'enter' for you.
+```
+
+## Use the filter_index() function to filter by date/time!
+
+```{r}
+### Filter from Dec 2010 to Jan 2011
+toolik_ts %>% 
+  filter_index("2018-01-01" ~ .) #the "." says, go to the end of the data
+
+```
+
+## Use index_by() to aggregate time series by increments
+
+
+```{r}
+toolik_month <- toolik_ts %>% 
+  index_by(yr_mo = ~yearmonth(.)) %>% #take the df, and group by year and month
+  summarize(monthly_mean_temp = mean(daily_air_temp, na.rm = TRUE)) %>% 
+  ungroup()
+
+```
+
+
+Now let's plot that!
+
+```{r}
+ggplot(data = toolik_month, aes(x = yr_mo, y = monthly_mean_temp)) +
+  geom_line()
+
+ggplot(toolik_month, aes(x = year(yr_mo), y = monthly_mean_temp)) +
+  geom_line() +
+  facet_wrap(~ month(yr_mo, label = TRUE)) +
+  labs(x = 'Year', y = 'Annual mean air temp (Celsius)', 
+       title = 'Toolik Sattion mean annual air temperature',
+       subtitle = '1988-2023',
+       caption = '<put citation here>')
+```
+
+
+
+
+
