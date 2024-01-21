@@ -1,0 +1,135 @@
+---
+title: "Lab 2 Practice"
+author: "Chelsea Sanford"
+format:
+  html:
+    code-fold: show
+    toc: true
+    number-sections: true
+editor: visual
+excecute: 
+  echo: true
+  message: false
+  warning: false
+---
+
+# Time Series Practice
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(tsibble)
+library(feasts)
+library(fable)
+```
+
+## Load in the data
+
+```{r}
+maunaloa_df <- read.csv(here('data/co2_mauna_loa.csv'))
+```
+
+## Convert the dates and turn into a time series
+#### Use Lubridate to convert the dates from character to DATE
+
+```{r}
+maunaloa_ts <- maunaloa_df %>% 
+  mutate(date = tsibble::yearmonth(date)) %>% 
+  as_tsibble(key = NULL,
+             index = date)
+
+ggplot(maunaloa_ts, aes(x = date, y = co2_mean)) +
+  geom_line() + 
+  labs(x = 'Date' , y = 'Mean CO2 Concentration (ppm)\nMauna Loa Station')
+```
+
+## Exploratory Subseries Plot: Filter by Date and Time
+#### Use filter_index() to filter by year
+
+```{r}
+maunaloa_1980 <- maunaloa_ts %>% 
+  filter_index('1980-01-01' ~ .)
+```
+
+#### Create a Subseries Plot
+```{r}
+maunaloa_1980 %>% 
+  gg_subseries(y = co2_mean)
+```
+
+## Analysis Part 2
+
+### Section 1
+
+```{r}
+dcmp <- maunaloa_ts %>% 
+  model(feasts::STL(co2_mean ~ season(period = '1 year') +
+                      trend(window = 49)))
+
+components(dcmp) %>% 
+  autoplot()
+```
+
+
+### Section 2: Create ETS Exponential Smoothing Model
+
+```{r}
+### Create a model
+maunaloa_fit <- maunaloa_ts %>% 
+  model(ets = ETS(co2_mean ~ season(method = "M") + trend(method = "A")))
+
+maunaloa_forecast <- maunaloa_fit %>% 
+  forecast(h = "20 years")
+
+maunaloa_forecast %>% 
+  autoplot(maunaloa_ts) +
+  labs(x = 'Date', y = 'CO2 Mean')
+```
+
+### Section 3
+
+```{r}
+maunaloa_predicted <- maunaloa_fit %>% 
+  broom::augment()
+
+ggplot(maunaloa_predicted) +
+  geom_line(aes(x = date, y = co2_mean)) +
+  geom_line(aes(x = date, y = .fitted), color = 'red', alpha = .7)
+
+ggplot(maunaloa_predicted, aes(x = .resid)) +
+  geom_histogram()
+```
+
+### Section 4
+
+```{r}
+maunaloa_fit_03 <- maunaloa_ts %>% 
+  filter_index(. ~ '2003 Jan') %>% 
+  model(ets = ETS(co2_mean ~ season(method = "M") + trend(method = "A")))
+
+maunaloa_forecast <- maunaloa_fit_03 %>% 
+  forecast(h = "20 years")
+
+maunaloa_forecast %>% 
+  autoplot(maunaloa_ts) +
+  labs(x = 'Date', y = 'CO2 Mean')
+```
+
+## Follow up Questions:
+
+#### 1. There is yearly seasonality, where [co2] is high in spring and low in fall. The trend is increasing. There is no pattern in the noise.
+
+#### 2. In your ETS time series model, explain whether an additive or multiplicative model would make more sense, in terms of the relationship between carbon dioxide, humans, and environmental factors.
+
+The trend is additive because the data increases continuously. The seasonality is multiplicative because the data changes variability and has non-linear trends.This is due to environmental factors, while the upward trend is based on anthropoegenic factors.
+
+
+
+
+
+
+
+
+

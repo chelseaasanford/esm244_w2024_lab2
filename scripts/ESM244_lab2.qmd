@@ -23,7 +23,7 @@ library(fable)
 
 # Part 1 Time Series with Toolik Lake data
 
-## Always loook at your data
+## Always look at your data
 
 ### Read in the data
 
@@ -34,7 +34,7 @@ toolik_df <-  read_csv(here('data/toolik_daily.csv'))
 
 
 toolik_ts <- toolik_df %>% 
-  mutate(date= lubridate::mdy(date)) %>% 
+  mutate(date = lubridate::mdy(date)) %>% 
 #convert from month,day, year to "date"  
   as_tsibble(key = NULL, ### if we have dates from multiple sites we wan tot key by site
              index = date) ### this is our time series variable
@@ -56,7 +56,6 @@ toolik_ts %>%
 
 ## Use index_by() to aggregate time series by increments
 
-
 ```{r}
 toolik_month <- toolik_ts %>% 
   index_by(yr_mo = ~yearmonth(.)) %>% #take the df, and group by year and month
@@ -64,7 +63,6 @@ toolik_month <- toolik_ts %>%
   ungroup()
 
 ```
-
 
 Now let's plot that!
 
@@ -81,7 +79,135 @@ ggplot(toolik_month, aes(x = year(yr_mo), y = monthly_mean_temp)) +
        caption = '<put citation here>')
 ```
 
+# Part 2: Time series wrangling and forecasting!
 
+Energy usage by sector, in trillions of BTUs.
 
+```{r}
+energy_df <- read_csv(here('data', 'energy.csv'))
+```
 
+### Analysis goals:
 
+-   Examine patterns and trends in residential energy consumption over time
+-   Predict waht residential energy use patterns will look like over the next 5 years
+
+### Psuedocode
+
+-   convert year-month to a date
+
+-   Convert the date to as_tsibble to convert to a time series dataframe.
+
+-   use ggplot to develop exploratory ggplot for trends.
+
+-   Average the energy consumption by year, so looking year-to-year
+
+-   do forecasting once we have looked at the trends
+
+-   identify trend, seasonality (before forecasting)
+
+-   define the alpha value (from the exponential smoothing) and select a suitable model
+
+-   decompose the data to look for trends and seasonality
+
+Filter() residential. visualize with: ggplot() geom_line
+
+```{r}
+energy_ts <- energy_df %>% 
+  mutate(date = tsibble::yearmonth(yrmonth)) %>% 
+  as_tsibble(index = date,
+             key = sector) # the key is saying "look at this by sector"
+  
+```
+
+```{r}
+ggplot(data = energy_ts, aes(x = date, y = energy_total, color = sector)) +
+  geom_line()+
+  labs(x = 'Title',
+       y = 'Energy consumption by sector\n (Trillion BTUs)') +
+  facet_wrap(~ sector, ncol = 1)
+
+```
+
+-   Residential looks similar to commercial, with an upward trend at least for the first part, maybe leveling off or decreasing in recent years
+-   Seasonality - summer and winter peaks, summer peaks seem to be getting larger over time
+
+exploratory plots in the feasts package: feature extraction and stats for time series
+
+### Season Plot
+
+```{r}
+energy_ts %>% 
+  filter(sector== 'residential') %>% 
+  gg_season(y = energy_total, pal = hcl.colors(n=9)) + #now we are in "ggplot" so use '+'
+  theme_light() +
+  labs(x = 'Month', y = 'Residential energy consumption (trillion BTU)')
+```
+
+### Subseries split
+
+```{r}
+energy_ts %>% 
+  gg_subseries(y = energy_total) +
+  
+# blue line is average over the years
+```
+
+## Decomposition
+
+```{r}
+### Find the STL decomposition(L = LOESS: locally estimated scatter plot smoothing)
+
+dcmp <- energy_ts %>% 
+  filter(sector == 'residential') %>% 
+  model(feasts::STL(energy_total ~ season(period = '1 year') +
+                      trend(window = 49)))
+
+components(dcmp) %>% 
+  autoplot()
+
+# the bar shows the relative variance in amplitude
+```
+
+### Autocorrelation function
+
+```{r}
+energy_ts %>% 
+  filter(sector == 'residential') %>% 
+  ACF(energy_total) %>% 
+  autoplot()
+
+# how much weight can i give to the previous january in predicting the next jan
+```
+
+## Forecasting by Holt Winters exponential smoothing
+
+specify for each component, whether non("N"), additive ("A"), or multiplicative ("M")
+
+```{r}
+### Create a model
+energy_fit <- energy_ts %>% 
+  filter(sector == 'residential') %>% 
+  filter_index('2010-01' ~ .) %>% 
+  model(ets = ETS(energy_total ~ season(method = "M") + trend(method = "A")))
+
+energy_forecast <- energy_fit %>% 
+  forecast(h = "5 years")
+
+energy_forecast %>% 
+  autoplot(energy_ts)
+```
+
+## Forecasting
+
+```{r}
+energy_predicted <- energy_fit %>% 
+  broom::augment()
+
+ggplot(energy_predicted) +
+  geom_line(aes(x = date, y = energy_total)) +
+  geom_line(aes(x = date, y = .fitted), color = 'red', alpha = .7)
+
+ggplot(energy_predicted, aes(x = .resid)) +
+  geom_histogram()
+```
